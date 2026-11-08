@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>:root{color-scheme:light}body{margin:0}</style>
+<title>Japa Counter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif&display=swap">
+<style>
+  /* Layout: one centered column. A ring of beads (a mala) holds the live count; stats and controls sit underneath. */
+  :root {
+    --bg: #E9ECE8;
+    --surface: #F6F7F4;
+    --fg: #18211E;
+    --muted: #556059;
+    --line: #C9D0CB;
+    --bead: #C3CBC5;
+    --accent: #A55407;
+    --accent-fg: #FFFFFF;
+    --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1614; --surface: #18221F; --fg: #E6ECE8; --muted: #93A49C;
+      --line: #2B3834; --bead: #2A3632; --accent: #E8943A; --accent-fg: #1A1006;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1614; --surface: #18221F; --fg: #E6ECE8; --muted: #93A49C;
+    --line: #2B3834; --bead: #2A3632; --accent: #E8943A; --accent-fg: #1A1006;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-inline: 16px;
+    padding-block: 24px 40px;
+  }
+  main { max-width: 520px; margin-inline: auto; display: flex; flex-direction: column; gap: 24px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-family: var(--font-display); font-weight: 400; font-size: 2rem; line-height: 1.1; margin: 0; letter-spacing: 0.005em; }
+  .hint { color: var(--muted); font-size: 0.875rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .keycap {
+    font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.04em;
+    padding: 2px 14px 3px; border: 1px solid var(--line); border-bottom-width: 3px;
+    border-radius: 6px; background: var(--surface); color: var(--fg);
+    transition: transform 80ms ease, border-bottom-width 80ms ease, background-color 80ms ease;
+  }
+  .keycap.down { transform: translateY(2px); border-bottom-width: 1px; background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+  .ring {
+    position: relative; width: min(100%, 440px); aspect-ratio: 1; margin-inline: auto;
+    cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  .ring svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .bead { fill: var(--bead); transition: fill 120ms ease; }
+  .bead.on { fill: var(--accent); }
+  .bead.guru { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .arc-track { fill: none; stroke: var(--bead); stroke-width: 10; }
+  .arc-fill { fill: none; stroke: var(--accent); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 120ms ease; }
+
+  .readout {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; pointer-events: none; text-align: center;
+  }
+  .round-label { font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .round-label.done { color: var(--accent); }
+  .count {
+    font-family: var(--font-display); font-size: clamp(5.5rem, 28vw, 9rem); line-height: 0.95;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+  .count.pulse { animation: pulse 140ms ease-out; }
+  @keyframes pulse { from { transform: scale(1.06); } to { transform: scale(1); } }
+  .of { font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .stat dt { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.04em; margin: 0 0 2px; }
+  .stat dd { margin: 0; font-family: var(--font-mono); font-size: 1.5rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  .moon { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px 14px; }
+  .moon-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 8px 0 4px; }
+  .moon-head h2 { font-size: 0.75rem; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; margin: 0; }
+  .moon-head span { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+  .day { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .day:first-of-type { border-top: 0; }
+  .day svg { width: 36px; height: 36px; grid-row: span 2; }
+  .phase-dark { fill: var(--bead); }
+  .phase-lit { fill: var(--accent); }
+  .day-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .day-when { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .day-name { font-family: var(--font-display); font-size: 1.45rem; line-height: 1.1; }
+  .day-tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-fg); }
+  .day-sub { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; min-width: 0; }
+  .day-span { color: var(--fg); font-family: var(--font-mono); font-size: 0.78rem; margin-top: 2px; }
+  .day-span .span-k { color: var(--muted); }
+  .mu-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .mu-k { color: var(--muted); font-size: 0.875rem; }
+  .mu-v { font-family: var(--font-mono); font-size: 0.95rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mu-row.key .mu-k { color: var(--fg); font-weight: 500; }
+  .mu-row.key .mu-v { color: var(--accent); font-weight: 500; }
+  #muTitle span { font-family: var(--font-mono); }
+  .day-span .seg { display: inline-block; white-space: nowrap; margin-right: 8px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .controls .spacer { flex: 1 1 0; min-width: 0; }
+  button, input { font: inherit; color: inherit; }
+  .btn {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer;
+    min-height: 40px;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn.danger-armed { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.875rem; }
+  .field input[type="number"] {
+    width: 5.5em; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; min-height: 40px; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.875rem; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .foot { color: var(--muted); font-size: 0.8125rem; margin: 0; }
+  .foot kbd { font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+  @media (max-width: 420px) {
+    .stat dd { font-size: 1.25rem; }
+    .stat { padding: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .count.pulse { animation: none; }
+    .bead, .arc-fill, .keycap { transition: none; }
+  }
+</style>
+
+</head>
+<body>
+<main>
+  <header>
+    <h1>Japa Counter</h1>
+    <div class="hint"><span class="keycap" id="keycap">Space</span><span>counts one</span></div>
+  </header>
+
+  <div class="ring" id="ring" role="img" aria-label="Mantra counter ring">
+    <svg id="svg" viewBox="0 0 400 400" aria-hidden="true"></svg>
+    <div class="readout">
+      <div class="round-label" id="roundLabel">Round 1</div>
+      <div class="count" id="count">0</div>
+      <div class="of" id="of">of 54</div>
+    </div>
+  </div>
+
+  <dl class="stats">
+    <div class="stat"><dt>Rounds done</dt><dd id="rounds">0</dd></div>
+    <div class="stat"><dt>Left in round</dt><dd id="left">54</dd></div>
+    <div class="stat"><dt>All repetitions</dt><dd id="total">0</dd></div>
+  </dl>
+
+  <section class="moon" aria-labelledby="moonTitle">
+    <div class="moon-head"><h2 id="moonTitle">Tithi at sunrise · Buenos Aires</h2><span id="moonNow"></span></div>
+    <div id="moonDays"></div>
+  </section>
+
+  <div class="controls">
+    <label class="field" for="target">Round of
+      <input type="number" id="target" min="1" max="10000" step="1" value="54" inputmode="numeric">
+    </label>
+    <label class="check" for="chime"><input type="checkbox" id="chime" checked> Chime at round end</label>
+    <span class="spacer"></span>
+    <button class="btn" id="undo" type="button">Undo</button>
+    <button class="btn" id="reset" type="button">Reset</button>
+  </div>
+
+  <section class="moon" aria-labelledby="muTitle">
+    <div class="moon-head"><h2 id="muTitle">Brahma muhurta &amp; sandhya · <span id="muDate"></span></h2><span id="muSun"></span></div>
+    <div id="muRows"></div>
+  </section>
+
+  <p class="foot">Press <kbd>Space</kbd> or tap the ring to count. <kbd>Backspace</kbd> undoes the last count. A foot pedal that sends the Space key works the same way. Your count is saved in this browser.</p>
+</main>
+
+<script>
+(function () {
+  var KEY = 'japa-counter-v1';
+  var state = { total: 0, target: 54, chime: true, v: 2 };
+  try {
+    var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved && isFinite(saved.total) && saved.total >= 0) {
+      state.total = Math.floor(saved.total);
+      // v2 made 54 the default: an old saved 108 (the previous default) moves to 54
+      if (isFinite(saved.target) && saved.target >= 1 && !(saved.v !== 2 && saved.target === 108)) state.target = Math.min(10000, Math.floor(saved.target));
+      if (typeof saved.chime === 'boolean') state.chime = saved.chime;
+    }
+  } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var svg = $('svg'), countEl = $('count'), keycap = $('keycap');
+  var NS = 'http://www.w3.org/2000/svg';
+  var R = 168, C = 200, MAX_BEADS = 216;
+  var beads = [], arcFill = null, built = 0;
+
+  function mk(tag, attrs) {
+    var el = document.createElementNS(NS, tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function buildRing() {
+    svg.innerHTML = '';
+    beads = []; arcFill = null;
+    var n = state.target;
+    built = n;
+    if (n <= MAX_BEADS) {
+      var r = n <= 60 ? 8 : n <= 108 ? 6 : n <= 150 ? 5 : 3.8;
+      for (var i = 0; i < n; i++) {
+        var a = (-90 + (i * 360) / n) * Math.PI / 180;
+        var x = C + R * Math.cos(a), y = C + R * Math.sin(a);
+        var big = n % 4 === 0 && i % (n / 4) === 0 && i !== 0;
+        var c = mk('circle', { cx: x.toFixed(2), cy: y.toFixed(2), r: big ? r + 2 : r, 'class': 'bead' });
+        svg.appendChild(c);
+        beads.push(c);
+      }
+      // the guru bead: an open ring above the first bead, as on a real mala
+      svg.appendChild(mk('circle', { cx: C, cy: C - R - 20, r: 8, 'class': 'bead guru' }));
+    } else {
+      var len = 2 * Math.PI * R;
+      svg.appendChild(mk('circle', { cx: C, cy: C, r: R, 'class': 'arc-track' }));
+      arcFill = mk('circle', {
+        cx: C, cy: C, r: R, 'class': 'arc-fill',
+        transform: 'rotate(-90 ' + C + ' ' + C + ')',
+        'stroke-dasharray': len.toFixed(2), 'stroke-dashoffset': len.toFixed(2)
+      });
+      arcFill._len = len;
+      svg.appendChild(arcFill);
+    }
+  }
+
+  function derived() {
+    var t = state.target, total = state.total;
+    var complete = total > 0 && total % t === 0;
+    var pos = complete ? t : total % t;
+    var rounds = Math.floor(total / t);
+    return {
+      t: t, total: total, complete: complete, pos: pos, rounds: rounds,
+      roundNo: complete ? rounds : rounds + 1,
+      left: complete ? 0 : t - pos
+    };
+  }
+
+  function render(pulse) {
+    if (built !== state.target) buildRing();
+    var d = derived();
+    countEl.textContent = d.pos;
+    $('of').textContent = 'of ' + d.t;
+    var rl = $('roundLabel');
+    rl.textContent = d.complete ? 'Round ' + d.roundNo + ' complete' : 'Round ' + d.roundNo;
+    rl.className = 'round-label' + (d.complete ? ' done' : '');
+    $('rounds').textContent = d.rounds;
+    $('left').textContent = d.left;
+    $('total').textContent = d.total;
+    for (var i = 0; i < beads.length; i++) beads[i].setAttribute('class', 'bead' + (i < d.pos ? ' on' : ''));
+    if (arcFill) arcFill.setAttribute('stroke-dashoffset', (arcFill._len * (1 - d.pos / d.t)).toFixed(2));
+    if (pulse) {
+      countEl.classList.remove('pulse');
+      void countEl.offsetWidth;
+      countEl.classList.add('pulse');
+    }
+    $('ring').setAttribute('aria-label', 'Count ' + d.pos + ' of ' + d.t + ', round ' + d.roundNo);
+  }
+
+  var audio = null;
+  function chime() {
+    if (!state.chime) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audio) audio = new AC();
+      if (audio.state === 'suspended') audio.resume();
+      var now = audio.currentTime;
+      [523.25, 783.99].forEach(function (f, i) {
+        var o = audio.createOscillator(), g = audio.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, now + i * 0.12);
+        g.gain.exponentialRampToValueAtTime(0.18, now + i * 0.12 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.12 + 1.6);
+        o.connect(g); g.connect(audio.destination);
+        o.start(now + i * 0.12); o.stop(now + i * 0.12 + 1.7);
+      });
+    } catch (e) {}
+  }
+
+  function press() {
+    state.total += 1;
+    save();
+    render(true);
+    if (derived().complete) chime();
+  }
+  function undo() {
+    if (state.total > 0) { state.total -= 1; save(); render(false); }
+  }
+
+  var resetBtn = $('reset'), resetTimer = null;
+  function disarm() {
+    clearTimeout(resetTimer); resetTimer = null;
+    resetBtn.textContent = 'Reset'; resetBtn.classList.remove('danger-armed');
+  }
+  resetBtn.addEventListener('click', function (e) {
+    if (resetTimer) { state.total = 0; save(); disarm(); render(false); }
+    else {
+      resetBtn.textContent = 'Tap again to reset'; resetBtn.classList.add('danger-armed');
+      resetTimer = setTimeout(disarm, 3000);
+    }
+    if (e.detail > 0) resetBtn.blur();
+  });
+  $('undo').addEventListener('click', function (e) { undo(); if (e.detail > 0) e.currentTarget.blur(); });
+  $('ring').addEventListener('click', press);
+
+  var targetEl = $('target');
+  function applyTarget() {
+    var v = Math.floor(Number(targetEl.value));
+    if (!isFinite(v) || v < 1) v = state.target;
+    v = Math.min(10000, v);
+    targetEl.value = v;
+    if (v !== state.target) { state.target = v; save(); render(false); }
+  }
+  targetEl.addEventListener('change', applyTarget);
+  targetEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') { applyTarget(); targetEl.blur(); } });
+
+  var chimeEl = $('chime');
+  chimeEl.addEventListener('change', function () { state.chime = chimeEl.checked; save(); });
+
+  function isTyping(t) { return t && (t.tagName === 'INPUT' && t.type === 'number'); }
+  function isSpace(e) { return e.code === 'Space' || e.key === ' '; }
+
+  document.addEventListener('keydown', function (e) {
+    if (isTyping(e.target)) return;
+    if (isSpace(e)) {
+      e.preventDefault();
+      keycap.classList.add('down');
+      if (!e.repeat) press();
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (!e.repeat) undo();
+    }
+  });
+  document.addEventListener('keyup', function (e) {
+    if (isTyping(e.target)) return;
+    if (isSpace(e)) { e.preventDefault(); keycap.classList.remove('down'); }
+  });
+  window.addEventListener('blur', function () { keycap.classList.remove('down'); });
+
+  targetEl.value = state.target;
+  chimeEl.checked = state.chime;
+  render(false);
+})();
+
+/* ---- Tithi for Buenos Aires ----
+   Tithi = which 12° slice of the Moon–Sun elongation we are in. The tithi of a day is the one
+   running at local sunrise. Positions use the Meeus (Astronomical Algorithms) series, good to
+   about a minute for tithi end times. Ayanamsa cancels out, so tropical longitudes are fine. */
+(function () {
+  var LAT = -34.6037, LON = -58.3816, UTC_OFF = -3; // Argentina keeps UTC−3 all year
+  var RAD = Math.PI / 180, DAY = 86400000, HOUR = 3600000;
+  function norm(x) { x %= 360; return x < 0 ? x + 360 : x; }
+  function jd(ms) { return ms / DAY + 2440587.5; }
+  function cent(ms) { return (jd(ms + 69000) - 2451545) / 36525; } // TT, ΔT ≈ 69 s
+
+  function sunLon(T) {
+    var L0 = 280.46646 + 36000.76983 * T + 0.0003032 * T * T;
+    var M = (357.52911 + 35999.05029 * T - 0.0001537 * T * T) * RAD;
+    var C = (1.914602 - 0.004817 * T - 0.000014 * T * T) * Math.sin(M) +
+            (0.019993 - 0.000101 * T) * Math.sin(2 * M) + 0.000289 * Math.sin(3 * M);
+    return norm(L0 + C - 0.00569); // with aberration; nutation cancels in the elongation
+  }
+  // Meeus table 47.A, longitude: [D, M, M', F, coefficient × 1e-6°]
+  var TERMS = [
+    [0,0,1,0,6288774],[2,0,-1,0,1274027],[2,0,0,0,658314],[0,0,2,0,213618],[0,1,0,0,-185116],
+    [0,0,0,2,-114332],[2,0,-2,0,58793],[2,-1,-1,0,57066],[2,0,1,0,53322],[2,-1,0,0,45758],
+    [0,1,-1,0,-40923],[1,0,0,0,-34720],[0,1,1,0,-30383],[2,0,0,-2,15327],[0,0,1,2,-12528],
+    [0,0,1,-2,10980],[4,0,-1,0,10675],[0,0,3,0,10034],[4,0,-2,0,8548],[2,1,-1,0,-7888],
+    [2,1,0,0,-6766],[1,0,-1,0,-5163],[1,1,0,0,4987],[2,-1,1,0,4036],[2,0,2,0,3994],
+    [4,0,0,0,3861],[2,0,-3,0,3665],[0,1,-2,0,-2689],[2,0,-1,2,-2602],[2,-1,-2,0,2390],
+    [1,0,1,0,-2348],[2,-2,0,0,2236],[0,1,2,0,-2120],[0,2,0,0,-2069],[2,-2,-1,0,2048],
+    [2,0,1,-2,-1773],[2,0,0,2,-1595],[4,-1,-1,0,1215],[0,0,2,2,-1110],[3,0,-1,0,-892],
+    [2,1,1,0,-810],[4,-1,-2,0,759],[0,2,-1,0,-713],[2,2,-1,0,-700],[2,1,-2,0,691],
+    [2,-1,0,-2,596],[4,0,1,0,549],[0,0,4,0,537],[4,-1,0,0,520],[1,0,-2,0,-487],
+    [2,1,0,-2,-399],[0,0,2,-2,-381],[1,1,1,0,351],[3,0,-2,0,-340],[4,0,-3,0,330],
+    [2,-1,2,0,327],[0,2,1,0,-323],[1,1,-1,0,299],[2,0,3,0,294]
+  ];
+  function moonLon(T) {
+    var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+    var Lp = 218.3164477 + 481267.88123421 * T - 0.0015786 * T2 + T3 / 538841 - T4 / 65194000;
+    var D = 297.8501921 + 445267.1114034 * T - 0.0018819 * T2 + T3 / 545868 - T4 / 113065000;
+    var M = 357.5291092 + 35999.0502909 * T - 0.0001536 * T2 + T3 / 24490000;
+    var Mp = 134.9633964 + 477198.8675055 * T + 0.0087414 * T2 + T3 / 69699 - T4 / 14712000;
+    var F = 93.2720950 + 483202.0175233 * T - 0.0036539 * T2 - T3 / 3526000 + T4 / 863310000;
+    var E = 1 - 0.002516 * T - 0.0000074 * T2, s = 0;
+    for (var i = 0; i < TERMS.length; i++) {
+      var t = TERMS[i];
+      var c = t[4] * (t[1] === 0 ? 1 : Math.abs(t[1]) === 1 ? E : E * E);
+      s += c * Math.sin((t[0] * D + t[1] * M + t[2] * Mp + t[3] * F) * RAD);
+    }
+    s += 3958 * Math.sin((119.75 + 131.849 * T) * RAD) + 1962 * Math.sin((Lp - F) * RAD) +
+         318 * Math.sin((53.09 + 479264.290 * T) * RAD);
+    return norm(Lp + s / 1e6);
+  }
+  function elong(ms) { var T = cent(ms); return norm(moonLon(T) - sunLon(T)); }
+  function tithiAt(ms) { return Math.floor(elong(ms) / 12) + 1; } // 1..30
+  // Time near `ms` when the elongation equals `target` degrees (Moon gains ~12.19°/day on the Sun)
+  function crossing(ms, target) {
+    var t = ms;
+    for (var i = 0; i < 12; i++) {
+      var diff = target - elong(t);
+      if (diff > 180) diff -= 360; else if (diff < -180) diff += 360;
+      t += diff / 12.19 * DAY;
+      if (Math.abs(diff) < 1e-5) break;
+    }
+    return t;
+  }
+  function tithiStart(ms) { return crossing(ms, (tithiAt(ms) - 1) * 12); }
+  function tithiEnd(ms) { return crossing(ms, tithiAt(ms) * 12); }
+  function sunrise(guess) { return sunEvent(guess, true); }
+  function sunset(guess) { return sunEvent(guess, false); }
+  // Sunrise/sunset nearest to `guess`: upper limb on the horizon, with refraction (−0.833°)
+  function sunEvent(guess, rising) {
+    var t = guess, lat = LAT * RAD;
+    for (var i = 0; i < 4; i++) {
+      var T = cent(t), lam = sunLon(T) * RAD, eps = (23.439291 - 0.0130042 * T) * RAD;
+      var ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam)) / RAD;
+      var dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+      var gmst = 280.46061837 + 360.98564736629 * (jd(t) - 2451545);
+      var cosH0 = (Math.sin(-0.833 * RAD) - Math.sin(lat) * Math.sin(dec)) / (Math.cos(lat) * Math.cos(dec));
+      var H0 = Math.acos(Math.max(-1, Math.min(1, cosH0))) / RAD;
+      var d = norm((rising ? -H0 : H0) - norm(gmst + LON - ra)); if (d > 180) d -= 360;
+      t += d / 360.9856 * DAY;
+    }
+    return t;
+  }
+
+  var NAMES = ['Pratipada', 'Dvitiya', 'Tritiya', 'Chaturthi', 'Panchami', 'Shashthi', 'Saptami',
+               'Ashtami', 'Navami', 'Dashami', 'Ekadashi', 'Dvadashi', 'Trayodashi', 'Chaturdashi'];
+  function tithiName(n) {
+    if (n === 15) return 'Purnima';
+    if (n === 30) return 'Amavasya';
+    return NAMES[(n - 1) % 15];
+  }
+  function paksha(n) { return n <= 15 ? 'Shukla' : 'Krishna'; }
+  function tag(n) {
+    if (n === 11 || n === 26) return 'Ekadashi';
+    if (n === 15) return 'Full moon';
+    if (n === 30) return 'New moon';
+    return '';
+  }
+
+  var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function local(ms) { return new Date(ms + UTC_OFF * HOUR); } // read with getUTC*
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function hm(ms) { var d = local(ms); return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()); }
+  function dayKey(ms) { var d = local(ms); return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate(); }
+  function dateLabel(ms) { var d = local(ms); return WD[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MO[d.getUTCMonth()]; }
+  function stamp(ms) { return dateLabel(ms) + ', ' + hm(ms); }
+
+  // Moon disc as seen from the southern hemisphere (waxing moon lit on the left)
+  function phaseSvg(e) {
+    var r = 15, c = 18, waxing = e < 180, p = waxing ? e : 360 - e;
+    var rx = (r * Math.abs(Math.cos(p * RAD))).toFixed(2);
+    // northern-view waxing shape: lit limb on the right, terminator ellipse
+    var d = 'M' + c + ' ' + (c - r) + ' A' + r + ' ' + r + ' 0 0 1 ' + c + ' ' + (c + r) +
+            ' A' + rx + ' ' + r + ' 0 0 ' + (p < 90 ? 0 : 1) + ' ' + c + ' ' + (c - r) + 'Z';
+    var flip = waxing ? ' transform="matrix(-1 0 0 1 ' + 2 * c + ' 0)"' : '';
+    return '<svg viewBox="0 0 36 36" aria-hidden="true"><circle class="phase-dark" cx="18" cy="18" r="15"/>' +
+           (p > 0.5 ? '<path class="phase-lit"' + flip + ' d="' + d + '"/>' : '') + '</svg>';
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (ch) { return '&#' + ch.charCodeAt(0) + ';'; }); }
+
+  function dayRow(when, midnightUtc) {
+    var rise = sunrise(midnightUtc + 9 * HOUR), nextRise = sunrise(midnightUtc + 33 * HOUR);
+    var n = tithiAt(rise), start = tithiStart(rise), end = tithiEnd(rise);
+    var sub = paksha(n) + ' paksha · sunrise ' + hm(rise);
+    function seg(k, v) { return '<span class="seg"><span class="span-k">' + k + '</span> ' + esc(v) + '</span> '; }
+    var span = seg('Starts', stamp(start)) + seg('Ends', stamp(end));
+    if (end < nextRise) span += seg('then', tithiName(n % 30 + 1));
+    var t = tag(n);
+    return '<div class="day">' + phaseSvg(elong(rise)) +
+      '<div class="day-top"><span class="day-when">' + esc(when + ' · ' + dateLabel(rise)) + '</span></div>' +
+      '<div class="day-sub"><div class="day-top"><span class="day-name">' + esc(tithiName(n)) + '</span>' +
+      (t ? '<span class="day-tag">' + esc(t) + '</span>' : '') + '</div>' + esc(sub) +
+      '<div class="day-span">' + span + '</div></div></div>';
+  }
+
+  /* Muhurta timings, Drik Panchang style. A muhurta is 1/15 of the day (sunrise→sunset) or of the
+     night (sunset→sunrise), so its length changes through the year.
+     Brahma muhurta: 14th night muhurta, from 2 to 1 muhurta before sunrise.
+     Pratah sandhya: 1.5 night muhurtas before sunrise, until sunrise.
+     Madhyahna sandhya: the 8th day muhurta (Abhijit), centred on local solar noon.
+     Sayam sandhya: sunset, for 1.5 night muhurtas. */
+  function muhurtaRows(midnightUtc) {
+    var prevSet = sunset(midnightUtc - 5 * HOUR), rise = sunrise(midnightUtc + 6 * HOUR);
+    var set = sunset(midnightUtc + 19 * HOUR), nextRise = sunrise(midnightUtc + 30 * HOUR);
+    var nightBefore = (rise - prevSet) / 15, day = (set - rise) / 15, nightAfter = (nextRise - set) / 15;
+    var rows = [
+      ['Brahma muhurta', rise - 2 * nightBefore, rise - nightBefore, true],
+      ['Pratah sandhya', rise - 1.5 * nightBefore, rise],
+      ['Madhyahna sandhya', rise + 7 * day, rise + 8 * day],
+      ['Sayam sandhya', set, set + 1.5 * nightAfter]
+    ];
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      html += '<div class="mu-row' + (r[3] ? ' key' : '') + '"><span class="mu-k">' + esc(r[0]) +
+              '</span><span class="mu-v">' + hm(r[1]) + ' – ' + hm(r[2]) + '</span></div>';
+    }
+    return {
+      title: dateLabel(rise),
+      sun: 'sunrise ' + hm(rise) + ' · sunset ' + hm(set),
+      html: html
+    };
+  }
+
+  var shownKey = '';
+  function renderMoon() {
+    var now = Date.now();
+    var d = local(now);
+    var midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - UTC_OFF * HOUR;
+    // the coming morning: today's if sunrise is still ahead (after midnight), otherwise tomorrow's
+    var muDay = now < sunrise(midnight + 6 * HOUR) ? midnight : midnight + DAY;
+    var key = dayKey(now) + '|' + muDay;
+    var cur = tithiAt(now);
+    document.getElementById('moonNow').textContent = 'now ' + tithiName(cur) + ' · ' + hm(now);
+    if (key === shownKey) return;
+    shownKey = key;
+    document.getElementById('moonDays').innerHTML = dayRow('Today', midnight) + dayRow('Tomorrow', midnight + DAY);
+    var mu = muhurtaRows(muDay);
+    document.getElementById('muDate').textContent = mu.title;
+    document.getElementById('muSun').textContent = mu.sun;
+    document.getElementById('muRows').innerHTML = mu.html;
+  }
+  renderMoon();
+  setInterval(renderMoon, 30000);
+})();
+</script>
+</body>
+</html>
